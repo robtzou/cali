@@ -1,0 +1,7 @@
+Flask
+pytesseract
+spacy
+dateparser
+python-dotenv
+python-docx
+pdf2image
