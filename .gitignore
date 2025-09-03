@@ -1,0 +1,16 @@
+# random shi i don't people seein'
+
+backend/
+*
+
+# Secrets
+
+secrets/
+*.json
+
+# Environment keys
+
+.env
+.env.*
+*.env
+
