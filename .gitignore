@@ -1,4 +1,6 @@
 # random shi i don't people seein'
+.python-version
+.DS_Store
 
 backend/
 *
