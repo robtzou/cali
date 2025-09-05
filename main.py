@@ -123,7 +123,15 @@ def login():
         scopes=SCOPES,
         redirect_uri=url_for("callback", _external=True)
     )
-    authorization_url, state = flow.authorization_url()
+
+    # This is the crucial change. 
+    # access_type='offline' tells Google we need a refresh token to use when the user is not present.
+    # prompt='consent' forces the consent screen every time, which is useful for testing to ensure a refresh token is always sent.
+    authorization_url, state = flow.authorization_url(
+        access_type='offline',
+        prompt='consent'
+    )
+    
     session["state"] = state
     return redirect(authorization_url)
 
@@ -144,7 +152,7 @@ def dashboard():
     if 'credentials' not in session:
         return redirect(url_for('login'))
 
-    message = "Enter a command or upload an image to create calendar events."
+    results_html = ""
 
     if request.method == 'POST':
         creds = Credentials(**session['credentials'])
@@ -162,7 +170,7 @@ def dashboard():
             raw_text = request.form['prompt']
         
         if not raw_text:
-            message = "Please provide a prompt or upload an image."
+            results_html = "Please provide a prompt or upload an image."
         else:
             try:
                 # --- New Gemini Logic ---
@@ -184,7 +192,7 @@ def dashboard():
                 events_to_create = llm_data.get("events", [])
                 
                 if not events_to_create:
-                    message = "No events found in the text."
+                    results_html = "No events found in the text."
                 else:
                     created_events_html = []
                     for event_data in events_to_create:
@@ -193,43 +201,156 @@ def dashboard():
                         link = f"<a href='{created_event.get('htmlLink')}' target='_blank'>{created_event.get('summary')}</a>"
                         created_events_html.append(f"<li>{link}</li>")
                     
-                    message = f"Successfully created {len(created_events_html)} event(s):<ul>{''.join(created_events_html)}</ul>"
+                    results_html = f"Successfully created {len(created_events_html)} event(s):<ul>{''.join(created_events_html)}</ul>"
 
             except Exception as e:
-                message = f"An error occurred: {e}"
+                results_html = f"An error occurred: {e}"
 
     # Render the dashboard page
     return render_template_string("""
         <!DOCTYPE html>
-        <html>
+        <html lang="en">
         <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>AI Calendar Agent</title>
             <style>
-                body { font-family: sans-serif; padding: 2em; }
-                form > div { margin-bottom: 1em; }
-                input[type=file] { margin-top: 0.5em; }
-                .results { margin-top: 1em; padding: 1em; border: 1px solid #ccc; border-radius: 5px; background-color: #f9f9f9; }
+                @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+                :root {
+                    --bg-color: #f8f9fa;
+                    --card-bg: #ffffff;
+                    --text-color: #212529;
+                    --primary-color: #6d28d9;
+                    --primary-hover: #5b21b6;
+                    --border-color: #dee2e6;
+                    --input-focus-border: #845ef7;
+                }
+                body {
+                    font-family: 'Inter', sans-serif;
+                    background-color: var(--bg-color);
+                    color: var(--text-color);
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    min-height: 100vh;
+                    margin: 0;
+                    padding: 1em;
+                    box-sizing: border-box;
+                }
+                .container {
+                    width: 100%;
+                    max-width: 600px;
+                    background: var(--card-bg);
+                    padding: 2.5em;
+                    border-radius: 16px;
+                    box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+                }
+                h1 {
+                    font-weight: 700;
+                    color: var(--text-color);
+                    margin-bottom: 0.25em;
+                    text-align: center;
+                }
+                .subtitle {
+                    text-align: center;
+                    color: #6c757d;
+                    margin-top: 0;
+                    margin-bottom: 2em;
+                }
+                .logout-link {
+                    display: block;
+                    margin-top: 2em;
+                    font-size: 0.9em;
+                    color: #6c757d;
+                    text-decoration: none;
+                    transition: color 0.2s;
+                    text-align: center;
+                }
+                .logout-link:hover { color: var(--primary-color); }
+                .results {
+                    margin-bottom: 2em;
+                    padding: 1em;
+                    border-radius: 8px;
+                    background-color: #e9ecef;
+                    text-align: left;
+                    border: 1px solid var(--border-color);
+                    font-size: 0.9em;
+                }
+                .results a { color: var(--primary-color); font-weight: 500; }
+                .results ul { padding-left: 20px; margin-top: 0.5em; margin-bottom: 0; }
+                form > div { margin-bottom: 1.5em; text-align: left; }
+                label { display: block; font-weight: 500; margin-bottom: 0.5em; }
+                input[type=text] {
+                    width: 100%;
+                    padding: 12px;
+                    border: 1px solid var(--border-color);
+                    border-radius: 8px;
+                    background-color: var(--card-bg);
+                    font-size: 1em;
+                    box-sizing: border-box;
+                    transition: border-color 0.2s, box-shadow 0.2s;
+                }
+                input[type=text]:focus {
+                    outline: none;
+                    border-color: var(--input-focus-border);
+                    box-shadow: 0 0 0 3px rgba(132, 94, 247, 0.25);
+                }
+                .file-upload-wrapper { position: relative; overflow: hidden; display: inline-block; width: 100%; }
+                .file-upload-btn {
+                    border: 1px solid var(--border-color); color: #495057; background-color: #f8f9fa;
+                    padding: 12px; border-radius: 8px; cursor: pointer; display: block;
+                    text-align: center; transition: background-color 0.2s;
+                    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                }
+                .file-upload-btn:hover { background-color: #e9ecef; }
+                input[type=file] {
+                    font-size: 100px; position: absolute; left: 0; top: 0; opacity: 0;
+                    cursor: pointer; height: 100%; width: 100%;
+                }
+                .submit-btn {
+                    width: 100%; padding: 14px; font-size: 1.1em; font-weight: 700; color: white;
+                    background-image: linear-gradient(45deg, #845ef7, #6d28d9);
+                    border: none; border-radius: 8px; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s;
+                    box-shadow: 0 4px 15px rgba(109, 40, 217, 0.3); margin-top: 1em;
+                }
+                .submit-btn:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 6px 20px rgba(109, 40, 217, 0.4);
+                }
             </style>
         </head>
         <body>
-            <h1>AI Calendar Agent</h1>
-            <div class="results">{{ message | safe }}</div>
-            <form method="post" enctype="multipart/form-data">
-                <div>
-                    <label for="prompt"><b>\nOption 1:</b> Type a command</label><br>
-                    <input type="text" id="prompt" name="prompt" size="50">
-                </div>
-                <div>
-                    <label for="image_file"><b>Option 2:</b> Or upload a schedule image</label><br>
-                    <input type="file" id="image_file" name="image_file" accept="image/*">
-                </div>
-                <input type="submit" value="Process and Create Events">
-            </form>
-            <br><br>
-            <a href="/logout">Logout</a>
+            <div class="container">
+                <h1>AI Calendar Agent</h1>
+                <p class="subtitle">Type a command or upload an image of a schedule.</p>
+                {% if results_html %}
+                <div class="results">{{ results_html | safe }}</div>
+                {% endif %}
+                <form method="post" enctype="multipart/form-data">
+                    <div>
+                        <label for="prompt"><b>Option 1:</b> Type a command</label>
+                        <input type="text" id="prompt" name="prompt" placeholder="e.g., Lunch with Alex tomorrow at 1pm">
+                    </div>
+                    <div>
+                        <label for="image_file"><b>Option 2:</b> Or upload a schedule image</label>
+                        <div class="file-upload-wrapper">
+                             <span class="file-upload-btn">Click to choose a file</span>
+                             <input type="file" id="image_file" name="image_file" accept="image/*">
+                        </div>
+                    </div>
+                    <input type="submit" value="Process and Create Events" class="submit-btn">
+                </form>
+                <a href="/logout" class="logout-link">Logout</a>
+            </div>
+            <script>
+                document.getElementById('image_file').addEventListener('change', function() {
+                    var fileName = this.files[0] ? this.files[0].name : 'Click to choose a file';
+                    document.querySelector('.file-upload-btn').textContent = fileName;
+                });
+            </script>
         </body>
         </html>
-    """, message=message)
+    """, results_html=results_html)
 
 
 @app.route("/logout")
@@ -244,3 +365,4 @@ def credentials_to_dict(credentials):
 
 if __name__ == "__main__":
     app.run(debug=True)
+
