@@ -1,0 +1,23 @@
+Edit this script to be able to: uses pytesseract to transfer a screenshot into text, takes that text into Gemini 1.5 and writes it into calendar format, and transfers that over to the Google Calendar API. Add a drag and dop feature for the flask app.
+
+Calendar format: "You are a calendar event extraction assistant.
+Extract all calendar-worthy events from the following text into a *strict* JSON object.
+Follow these rules exactly:
+
+1) Output *only* valid JSON. No backticks, no comments, no extra text.
+2) Return an object with an "events" array. Each element has:
+   - "title": short human-friendly title
+   - "start": event start datetime in ISO 8601 (include timezone offset if known) OR a clear natural-language datetime
+   - "end": (optional) event end datetime in ISO 8601 or natural language
+   - "allday": boolean (true if all-day, else false)
+   - "location": (optional) event location string
+   - "description": (optional) brief description/notes
+   - "timezone": (optional) IANA timezone (e.g., "America/New_York") if inference is obvious
+
+3) If the text contains ambiguous or relative dates like "tomorrow" or "next Tuesday",
+   resolve them relative to CURRENT_DATETIME={current_datetime} and assume TIMEZONE={timezone}.
+
+4) If an end time is not provided and it's not all-day, you may infer a 60-minute duration.
+5) Skip non-events (e.g., "call me", "random thoughts") unless they clearly imply scheduled details.
+
+Now parse this text:"
