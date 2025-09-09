@@ -22,4 +22,4 @@ COPY . .
 EXPOSE 10000
 
 # 8. Define the command to run your app using Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:10000", "app:app"]
+CMD ["gunicorn", "--workers", "1", "--bind", "0.0.0.0:10000", "app:app"]
