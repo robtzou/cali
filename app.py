@@ -1,3 +1,6 @@
+#   pip install google-cloud-vision
+#   export GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/your-service-account.json
+
 import os
 import datetime
 import json
@@ -7,12 +10,10 @@ from flask import Flask, redirect, url_for, session, request, render_template_st
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
 import google.generativeai as genai
+from google.cloud import vision
 
 # New imports for OCR and advanced date parsing
-import pytesseract
-from PIL import Image
 from dateutil import parser as date_parser
 from dateutil.tz import gettz
 
@@ -56,16 +57,47 @@ If an end time is not provided for a timed event, infer a 60-minute duration.
 
 # --- OCR and Event Normalization Functions (from your script) ---
 
-def ocr_image_to_text(image_path: str) -> str:
-    """Perform OCR on an image and return extracted text."""
-    try:
-        img = Image.open(image_path)
-        text = pytesseract.image_to_string(img)
-        return text
-    except Exception as e:
-        print(f"Error during OCR: {e}")
-        return ""
 
+def ocr_image_to_text(image_path: str) -> str:
+    """
+    Perform OCR on an image and return extracted text using Google Cloud Vision's
+    DOCUMENT_TEXT_DETECTION (more accurate for documents/receipts than basic OCR).
+
+    Requirements:
+      - pip install google-cloud-vision
+      - Set service account credentials, e.g.:
+          export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
+
+    Notes:
+      - This replaces the previous Tesseract-based approach, which was more memory intensive.
+      - Vision handles a wide variety of file types (JPEG, PNG, WEBP, PDF first page as image, etc.).
+    """
+    try:
+        client = vision.ImageAnnotatorClient()
+        with open(image_path, "rb") as f:
+            content = f.read()
+        image = vision.Image(content=content)
+
+        # Use DOCUMENT_TEXT_DETECTION for structured docs; it's better for forms and receipts.
+        response = client.document_text_detection(image=image)
+        if response.error.message:
+            # Return empty string but log the error for debugging
+            print(f"Vision API error: {response.error.message}")
+            return ""
+
+        # full_text_annotation aggregates detected text across the whole page
+        if response.full_text_annotation and response.full_text_annotation.text:
+            return response.full_text_annotation.text
+
+        # Fallback: try reading concatenated block/annotation text
+        if response.text_annotations:
+            return " ".join([a.description for a in response.text_annotations])
+
+        return ""
+    except Exception as e:
+        # Keep the interface identical: swallow and return empty string, but print error
+        print(f"Error during OCR with Google Vision: {e}")
+        return ""
 def _parse_datetime_guess(s: str, tz: str) -> datetime.datetime:
     """Parse a datetime string, assigning a timezone if it's naive."""
     dt = date_parser.parse(s, fuzzy=True)
@@ -164,7 +196,7 @@ def dashboard():
             file = request.files['image_file']
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
             file.save(filepath)
-            raw_text = ocr_image_to_text(filepath)
+            raw_text = ocr_image_to_text(filepath)  # Uses Google Cloud Vision DOCUMENT_TEXT_DETECTION
         # Check for text prompt
         elif request.form.get('prompt'):
             raw_text = request.form['prompt']
@@ -208,6 +240,7 @@ def dashboard():
 
     # Render the dashboard page
     return render_template_string("""
+                                  
         <!DOCTYPE html>
         <html lang="en">
         <head>
